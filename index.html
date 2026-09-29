@@ -1,0 +1,802 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<title>Diagrama Sankey de energía</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+*{box-sizing:border-box}
+body{margin:0;background:#E8ECF1;color:#14235A;font-family:"Segoe UI",system-ui,-apple-system,Roboto,Arial,sans-serif;font-size:15px}
+.top{display:flex;flex-wrap:wrap;gap:8px;align-items:center;padding:10px 16px;background:#fff;border-bottom:1px solid #D3DAE4;position:sticky;top:0;z-index:20}
+.brand{font-weight:700;font-size:17px;margin-right:8px}
+.top label{display:flex;align-items:center;gap:6px;font-weight:600;font-size:14px}
+select,input[type=text],input[type=number]{font:inherit;color:#14235A;background:#F5F7FA;border:1px solid #CBD3DE;border-radius:6px;padding:6px 8px;min-width:0}
+button{font:inherit;font-weight:600;color:#14235A;background:#fff;border:1px solid #CBD3DE;border-radius:7px;padding:6px 12px;cursor:pointer}
+button:hover{border-color:#6F80A0}
+button.primary{background:#1B4FBF;border-color:#1B4FBF;color:#fff}
+button.sm{padding:3px 8px;font-size:13px}
+#msg{font-size:13px;color:#1B4FBF;font-weight:600}
+.stagewrap{padding:16px;display:flex;justify-content:center;background:#E8ECF1}
+#stage{width:100%;max-width:1600px;background:#fff;border-radius:12px;box-shadow:0 2px 14px rgba(20,35,90,.12);overflow:hidden}
+#stage svg{display:block;width:100%;height:auto}
+#stage .fl{transition:stroke-opacity .15s}
+#stage svg.dim .fl{stroke-opacity:.07}
+#stage svg.dim .fl.on{stroke-opacity:.9}
+#stage .card{cursor:default}
+.stagewrap:fullscreen{align-items:center;padding:0;background:#fff}
+.stagewrap:fullscreen #stage{max-width:none;border-radius:0;box-shadow:none}
+#notes{max-width:1600px;margin:0 auto;padding:0 16px 24px}
+.note{margin-top:8px;padding:9px 12px;border-radius:8px;background:#FFF4DF;color:#7A4A00;font-size:14px}
+#editor{position:fixed;top:0;right:0;bottom:0;width:min(600px,100vw);background:#fff;box-shadow:-6px 0 24px rgba(20,35,90,.22);z-index:30;display:flex;flex-direction:column}
+#editor[hidden]{display:none}
+.edhead{display:flex;justify-content:space-between;align-items:center;padding:12px 16px;border-bottom:1px solid #D3DAE4}
+.edhead h2{margin:0;font-size:17px}
+.tabs{display:flex;gap:4px;padding:8px 16px 0;border-bottom:1px solid #D3DAE4}
+.tabs button{border:0;border-bottom:3px solid transparent;border-radius:0;background:none;padding:8px 12px;color:#5B6577}
+.tabs button.on{color:#14235A;border-bottom-color:#1B4FBF}
+#edbody{padding:14px 16px;overflow:auto;flex:1}
+.f{display:flex;flex-direction:column;gap:4px;margin-bottom:12px}
+.f label{font-weight:600;font-size:13px}
+.f input,.f textarea,.f select{width:100%}
+textarea{font:inherit;color:#14235A;background:#F5F7FA;border:1px solid #CBD3DE;border-radius:6px;padding:6px 8px}
+.hint{font-size:13px;color:#5B6577;margin:6px 0 10px}
+.nrow{display:grid;grid-template-columns:auto 1fr 40px 110px auto;gap:6px;align-items:center;margin-bottom:6px}
+.nrow .mv{display:flex;flex-direction:column;gap:2px}
+.nrow .mv button{padding:0 6px;font-size:11px;line-height:1.2}
+.nrow input[type=color]{width:40px;height:32px;padding:0;border:1px solid #CBD3DE;border-radius:6px;background:none}
+.srow{display:grid;grid-template-columns:1.3fr 1.2fr 90px auto;gap:6px;margin-bottom:6px}
+.tblwrap{overflow:auto;max-height:60vh;border:1px solid #D3DAE4;border-radius:8px}
+table{border-collapse:collapse;width:100%}
+th,td{padding:4px;white-space:nowrap}
+th{position:sticky;top:0;background:#F0F3F8;font-size:13px;text-align:left;z-index:1}
+td input{width:100%}
+td input.n{width:86px;text-align:right}
+td input.nm{min-width:150px}
+.row{display:flex;gap:8px;flex-wrap:wrap;margin:10px 0}
+.f .chk{flex-direction:row;align-items:center;gap:6px;font-weight:500;font-size:14px}.f .chk input{width:auto}
+body.pub .adm{display:none}
+@media (max-width:700px){.brand{width:100%}}
+</style>
+</head>
+<body>
+<div class="top">
+  <div class="brand">Diagrama Sankey</div>
+  <label>Período <select id="month"></select></label>
+  <button id="bEdit" class="primary adm">Editar datos</button>
+  <button id="bSrc" class="adm">Fuente de datos</button>
+  <button id="bImport" class="adm">Importar CSV</button>
+  <input type="file" id="file" accept=".csv,.txt" hidden>
+  <button id="bCsv" class="adm">Descargar CSV</button>
+  <button id="bPng">Exportar PNG</button>
+  <button id="bSvg">Exportar SVG</button>
+  <button id="bFull">Pantalla completa</button>
+  <span id="msg" role="status" aria-live="polite"></span>
+  <span id="upd" style="font-size:13px;color:#5B6577"></span>
+</div>
+<div class="stagewrap" id="stagewrap"><div id="stage"></div></div>
+<div id="notes"></div>
+
+<aside id="editor" hidden>
+  <div class="edhead"><h2>Editar datos</h2><button id="edClose">Cerrar</button></div>
+  <div class="tabs" id="edTabs">
+    <button data-tab="textos">Textos</button>
+    <button data-tab="nodos">Nodos</button>
+    <button data-tab="flujos">Flujos</button>
+    <button data-tab="resumen">Resumen</button>
+    <button data-tab="fuente">Fuente de datos</button>
+  </div>
+  <div id="edbody"></div>
+</aside>
+<datalist id="dlNodes"></datalist>
+<datalist id="dlIcons"></datalist>
+
+<script>
+(function(){
+'use strict';
+var W = 1600, CARD_W = 270, ICON_W = 96, GAP = 14, MINH0 = 68, TOP = 170;
+var INK = '#14235A', GREY = '#5B6577';
+var FONT = 'Segoe UI, Arial, Helvetica, sans-serif';
+var KEY = 'sankey-energia-v1';
+
+/* ================= CONFIGURACIÓN (edita aquí para publicar) =================
+   flujosUrl: enlace CSV publicado de la hoja «Flujos» (Google Sheets) o un archivo
+              junto a esta página, por ejemplo 'flujos.csv'.
+   nodosUrl:  enlace CSV publicado de la hoja «Nodos» (opcional: colores e íconos).
+   Si flujosUrl tiene un valor, la página queda en «modo publicado»: solo lectura,
+   con datos siempre tomados de la fuente. Para editar, ábrela con ?editar al final. */
+var CONFIGURACION = {
+  flujosUrl: 'https://gerdaucld-my.sharepoint.com/:x:/r/personal/leaynery_narvaez_sider_com_pe/Documents/sankey/datos_sankey.xlsx?d=w27dc3bfde20e43e1897180d60b8b90e1&csf=1&web=1&e=iaCUaC&nav=MTVfezAwMDAwMDAwLTAwMDEtMDAwMC0wMDAwLTAwMDAwMDAwMDAwMH0',
+  nodosUrl: 'https://gerdaucld-my.sharepoint.com/:x:/r/personal/leaynery_narvaez_sider_com_pe/Documents/sankey/datos_sankey.xlsx?d=w27dc3bfde20e43e1897180d60b8b90e1&csf=1&web=1&e=jE9q3N&nav=MTVfezAwMDAwMDAwLTAwMDEtMDAwMC0wMTAwLTAwMDAwMDAwMDAwMH0',
+  minutos: 5,
+  titulo: 'Ejemplo de Diagrama Sankey de Energía',
+  subtitulo: 'Planta siderúrgica – flujo ilustrativo de energía',
+  unidad: 'TJ',
+  nota: 'Ejemplo ilustrativo – no corresponde a un balance oficial',
+  columnas: ['Fuentes de energía','Procesos / consumidores','Destino final'],
+  resumen: [   // [descripción, nodo (o ENTRADA), ícono]
+    ['Energía total de entrada','ENTRADA','hoja'],
+    ['Energía útil en producción','Energía útil en producción','fabrica'],
+    ['Pérdidas térmicas','Pérdidas térmicas','calor'],
+    ['Pérdidas eléctricas','Pérdidas eléctricas','rayo'],
+    ['Consumo auxiliar','Consumo auxiliar','engranaje']
+  ]
+};
+var PUBLICADO = !!CONFIGURACION.flujosUrl && !/[?&]editar/.test(location.search);
+/* ============================================================================ */
+var PAL = ['#1B6FCC','#EE7B1E','#3E9B3E','#7B8088','#A81E1E','#EBAA10','#6A4DB3','#DC3535','#2FA69C','#B8527D'];
+
+/* ---------- Íconos (cuadrícula 24x24, trazo) ---------- */
+var ICONS = {
+  torre:'<path d="M12 2 7.5 22M12 2l4.5 20M6 7h12M8.3 14h7.4M9.7 7l6 7M14.3 7l-6 7M4 22h16"/>',
+  rayo:'<polygon points="13 2 4 14 12 14 11 22 20 10 12 10 13 2"/>',
+  llama:'<path d="M8.5 14.5A2.5 2.5 0 0 0 11 12c0-1.38-.5-2-1-3-1.072-2.143-.224-4.054 2-6 .5 2.5 2 4.9 4 6.5 2 1.6 3 3.5 3 5.5a7 7 0 1 1-14 0c0-1.153.433-2.294 1-3a2.5 2.5 0 0 0 2.5 2.5z"/>',
+  sol:'<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M6.3 17.7l-1.4 1.4M19.1 4.9l-1.4 1.4"/>',
+  combustible:'<rect x="4" y="3" width="10" height="18" rx="1.5"/><path d="M4 10h10M14 8h2.5a1.5 1.5 0 0 1 1.5 1.5V16a1.5 1.5 0 0 0 3 0V9L18 6M7 6.5h4"/>',
+  fabrica:'<path d="M2 21V10l6 4v-4l6 4V4h4v17zM2 21h20"/>',
+  engranaje:'<circle cx="12" cy="12" r="3"/><circle cx="12" cy="12" r="7.5" stroke-width="3.2" stroke-dasharray="2.35 2.35"/>',
+  crisol:'<path d="M5 9h14l-1.6 10.2A2 2 0 0 1 15.4 21H8.6a2 2 0 0 1-2-1.8z"/><path d="M3 9h18M12 2v4M9 6h6"/>',
+  rollo:'<circle cx="12" cy="12" r="8.5"/><circle cx="12" cy="12" r="5"/><circle cx="12" cy="12" r="1.6"/>',
+  o2:'<circle cx="12" cy="12" r="9.5"/><text x="12" y="15.6" text-anchor="middle" font-size="9.5" font-weight="700" fill="COLOR" stroke="none" font-family="Segoe UI, Arial">O₂</text>',
+  motor:'<rect x="6" y="7.5" width="11" height="9" rx="2"/><path d="M3 12h3M17 12h3M9 7.5v9M12 7.5v9M14.5 7.5v9M8 16.5v2.5M15 16.5v2.5M6 19h11"/>',
+  hoja:'<path d="M11 20A7 7 0 0 1 9.8 6.1C15.5 5 17 4.48 19.2 2c1 2 2 4.18 2 8 0 5.5-4.78 10-10 10Z"/><path d="M2 21c0-3 1.85-5.36 5.08-6C9.5 14.52 12 13 13 12"/>',
+  calor:'<path d="M8 5c-2 2 2 3.5 0 6s2 3.5 0 6M12.5 5c-2 2 2 3.5 0 6s2 3.5 0 6M17 5c-2 2 2 3.5 0 6s2 3.5 0 6M5 21h14"/>',
+  agua:'<path d="M12 2.7 17.2 9.4a6.5 6.5 0 1 1-10.4 0z"/>',
+  aire:'<path d="M3 8h11a3 3 0 1 0-3-3M3 12h16a3 3 0 1 1-3 3M3 16h8a2.5 2.5 0 1 1-2.5 2.5"/>',
+  nube:'<path d="M6 20a4 4 0 0 1-.5-8 6 6 0 0 1 11.6-1A4.5 4.5 0 0 1 17.5 20z"/>'
+};
+
+/* ---------- Datos de ejemplo (el balance del modelo) ---------- */
+var SAMPLE_NODES = [
+  ['Electricidad','#1B6FCC','torre'],['Gas natural','#EE7B1E','llama'],['Solar FV','#3E9B3E','sol'],['Diésel de respaldo','#7B8088','combustible'],
+  ['Acería EAF/LF','#A81E1E','crisol'],['Laminación 1','#E8711A','rollo'],['Laminación 2','#EBAA10','rollo'],['Planta de O₂','#1C6BB8','o2'],['Aire comprimido','#6A4DB3','motor'],['Servicios auxiliares','#7B8088','engranaje'],
+  ['Energía útil en producción','#3E9B3E','fabrica'],['Pérdidas térmicas','#DC3535','calor'],['Pérdidas eléctricas','#1B6FCC','rayo'],['Consumo auxiliar','#7B8088','engranaje']
+];
+var SAMPLE_FLOWS = [
+  ['Electricidad','Acería EAF/LF',4000],['Electricidad','Laminación 1',900],['Electricidad','Laminación 2',600],['Electricidad','Planta de O₂',1000],['Electricidad','Aire comprimido',1000],['Electricidad','Servicios auxiliares',500],
+  ['Gas natural','Acería EAF/LF',3000],['Gas natural','Laminación 1',2000],['Gas natural','Laminación 2',1800],['Gas natural','Servicios auxiliares',200],
+  ['Solar FV','Acería EAF/LF',1500],['Solar FV','Laminación 1',400],['Solar FV','Laminación 2',100],['Solar FV','Planta de O₂',600],['Solar FV','Aire comprimido',300],['Solar FV','Servicios auxiliares',100],
+  ['Diésel de respaldo','Acería EAF/LF',500],['Diésel de respaldo','Laminación 1',200],['Diésel de respaldo','Planta de O₂',400],['Diésel de respaldo','Aire comprimido',200],['Diésel de respaldo','Servicios auxiliares',700],
+  ['Acería EAF/LF','Energía útil en producción',5000],['Acería EAF/LF','Pérdidas térmicas',2500],['Acería EAF/LF','Pérdidas eléctricas',1000],['Acería EAF/LF','Consumo auxiliar',500],
+  ['Laminación 1','Energía útil en producción',2200],['Laminación 1','Pérdidas térmicas',900],['Laminación 1','Pérdidas eléctricas',200],['Laminación 1','Consumo auxiliar',200],
+  ['Laminación 2','Energía útil en producción',1500],['Laminación 2','Pérdidas térmicas',700],['Laminación 2','Pérdidas eléctricas',150],['Laminación 2','Consumo auxiliar',150],
+  ['Planta de O₂','Energía útil en producción',1300],['Planta de O₂','Pérdidas térmicas',300],['Planta de O₂','Pérdidas eléctricas',250],['Planta de O₂','Consumo auxiliar',150],
+  ['Aire comprimido','Energía útil en producción',1000],['Aire comprimido','Pérdidas térmicas',100],['Aire comprimido','Pérdidas eléctricas',300],['Aire comprimido','Consumo auxiliar',100],
+  ['Servicios auxiliares','Energía útil en producción',1000],['Servicios auxiliares','Pérdidas eléctricas',100],['Servicios auxiliares','Consumo auxiliar',400]
+];
+var SAMPLE_MONTHS = {'Modelo anual':1,'Ene':0.08,'Feb':0.09};
+
+function defaults(){
+  var months = Object.keys(SAMPLE_MONTHS);
+  return {
+    title:CONFIGURACION.titulo,
+    subtitle:CONFIGURACION.subtitulo,
+    unit:CONFIGURACION.unidad,
+    footer:CONFIGURACION.nota,
+    colTitles:CONFIGURACION.columnas.slice(),
+    mode:'source', opacity:55,
+    source:{url:CONFIGURACION.flujosUrl, nodesUrl:CONFIGURACION.nodosUrl, auto:true, minutes:CONFIGURACION.minutos||5, latest:true},
+    months:months, month:months[0],
+    nodes:SAMPLE_NODES.map(function(a){return {name:a[0],color:a[1],icon:a[2]};}),
+    flows:SAMPLE_FLOWS.map(function(a){
+      var v={}; months.forEach(function(m){ v[m]=Math.round(a[2]*SAMPLE_MONTHS[m]*100)/100; });
+      return {s:a[0],t:a[1],v:v};
+    }),
+    summary:CONFIGURACION.resumen.map(function(a){ return {label:a[0],node:a[1],icon:a[2]}; })
+  };
+}
+function load(){
+  var d = defaults();
+  if(PUBLICADO) return d;
+  try{
+    var raw = localStorage.getItem(KEY);
+    if(!raw) return d;
+    var s = JSON.parse(raw);
+    if(!s || !Array.isArray(s.flows) || !Array.isArray(s.nodes) || !Array.isArray(s.months) || !s.months.length) return d;
+    Object.keys(d).forEach(function(k){ if(s[k]===undefined) s[k]=d[k]; });
+    if(s.months.indexOf(s.month)<0) s.month = s.months[0];
+    return s;
+  }catch(e){ return d; }
+}
+var saveT;
+function save(){ if(PUBLICADO) return; clearTimeout(saveT); saveT=setTimeout(function(){ try{localStorage.setItem(KEY,JSON.stringify(state));}catch(e){} },250); }
+
+var state = load();
+var L = null;
+var curTab = 'textos';
+
+var $ = function(id){ return document.getElementById(id); };
+function esc(s){ return String(s).replace(/[&<>"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];}); }
+function r1(n){ return Math.round(n*100)/100; }
+function fmt(v){ return Number(v).toLocaleString('de-DE',{maximumFractionDigits:2}); }
+function withUnit(v){ return fmt(v)+(state.unit?' '+state.unit:''); }
+
+/* ---------- Cálculo del diagrama ---------- */
+function compute(){
+  var m = state.month, warns = [];
+  var map = new Map(), list = [];
+  function add(name, src){
+    if(!map.has(name)){
+      var b = src || {};
+      var n = {name:name,color:b.color||PAL[list.length%PAL.length],icon:b.icon||'',in:[],out:[],depth:0};
+      map.set(name,n); list.push(n);
+    }
+    return map.get(name);
+  }
+  state.nodes.forEach(function(n){ if(String(n.name).trim()) add(String(n.name).trim(), n); });
+  var raw = [];
+  state.flows.forEach(function(f){
+    var s = String(f.s==null?'':f.s).trim(), t = String(f.t==null?'':f.t).trim(), v = Number(f.v && f.v[m]);
+    if(s && t && s!==t && v>0) raw.push({s:s,t:t,v:v});
+  });
+  raw.forEach(function(r){ add(r.s); add(r.t); });
+
+  // Quitar flujos que regresan (ciclos)
+  var adj = new Map(); list.forEach(function(n){ adj.set(n.name,[]); });
+  raw.forEach(function(r,i){ adj.get(r.s).push({r:r,i:i}); });
+  var st = {}, drop = new Set();
+  function dfs(name){
+    st[name]=1;
+    adj.get(name).forEach(function(e){
+      if(st[e.r.t]===1) drop.add(e.i); else if(!st[e.r.t]) dfs(e.r.t);
+    });
+    st[name]=2;
+  }
+  list.forEach(function(n){ if(!st[n.name]) dfs(n.name); });
+  if(drop.size) warns.push('Se ignoraron '+drop.size+' flujo(s) que regresan a un paso anterior y forman un ciclo.');
+
+  var links = [];
+  raw.forEach(function(r,i){
+    if(drop.has(i)) return;
+    var l = {s:map.get(r.s),t:map.get(r.t),v:r.v,i:links.length};
+    links.push(l); l.s.out.push(l); l.t.in.push(l);
+  });
+  var nodes = list.filter(function(n){ return n.in.length||n.out.length; });
+  if(!nodes.length) return {nodes:[],links:[],warns:warns,imbalance:[]};
+
+  // Columnas
+  var memo = new Map();
+  function depthOf(n){
+    if(memo.has(n)) return memo.get(n);
+    var d = 0; n.in.forEach(function(l){ d = Math.max(d, depthOf(l.s)+1); });
+    memo.set(n,d); return d;
+  }
+  nodes.forEach(function(n){ n.depth = depthOf(n); });
+  var maxD = Math.max.apply(null, nodes.map(function(n){return n.depth;}));
+  nodes.forEach(function(n){ if(!n.out.length) n.depth = maxD; });
+  var nc = maxD+1;
+  var cols = []; for(var c=0;c<nc;c++) cols.push([]);
+  nodes.forEach(function(n){ cols[n.depth].push(n); });
+
+  nodes.forEach(function(n){
+    n.vin = n.in.reduce(function(a,l){return a+l.v;},0);
+    n.vout = n.out.reduce(function(a,l){return a+l.v;},0);
+    n.value = Math.max(n.vin,n.vout);
+  });
+  var colTotals = cols.map(function(cn){ return cn.reduce(function(a,n){return a+n.value;},0); });
+
+  // Alturas
+  var maxCnt = Math.max.apply(null, cols.map(function(cn){return cn.length;}));
+  var areaH = Math.max(570, maxCnt*(MINH0+GAP)-GAP);
+  var minh = MINH0;
+  var kk = Math.min.apply(null, cols.map(function(cn,ci){ return (areaH-(cn.length-1)*GAP)/colTotals[ci]; }));
+  function colHeight(ci){
+    var tot = (cols[ci].length-1)*GAP;
+    cols[ci].forEach(function(n){ tot += Math.max(minh, n.value*kk); });
+    return tot;
+  }
+  var guard = 0;
+  while(guard++<400){
+    var ok = true;
+    for(var ci=0; ci<nc; ci++) if(colHeight(ci)>areaH+0.5) ok=false;
+    if(ok) break;
+    kk *= 0.96;
+  }
+  var xs = cols.map(function(cn,ci){ return nc>1 ? 22+ci*(W-44-CARD_W)/(nc-1) : (W-CARD_W)/2; });
+  cols.forEach(function(cn,ci){
+    var tot = colHeight(ci), y = TOP + (areaH-tot)/2;
+    cn.forEach(function(n){
+      n.x = xs[ci]; n.h = Math.max(minh, n.value*kk); n.y = y; y += n.h+GAP;
+    });
+  });
+  links.forEach(function(l){ l.w = Math.max(l.v*kk, 0.8); });
+  nodes.forEach(function(n){
+    var y = n.y + (n.h - n.vout*kk)/2;
+    n.out.sort(function(a,b){return a.t.y-b.t.y;}).forEach(function(l){ l.y0 = y+l.w/2; y += l.w; });
+    y = n.y + (n.h - n.vin*kk)/2;
+    n.in.sort(function(a,b){return a.s.y-b.s.y;}).forEach(function(l){ l.y1 = y+l.w/2; y += l.w; });
+  });
+
+  var imbalance = nodes.filter(function(n){
+    return n.in.length && n.out.length && Math.abs(n.vin-n.vout) > Math.max(0.005, n.value*0.0005);
+  });
+  var hasSummary = state.summary.some(function(s){ return String(s.label).trim(); });
+  var yStrip = TOP+areaH+22;
+  var yFoot = yStrip + (hasSummary?92+28:6);
+  var H = yFoot + 26;
+  return {nodes:nodes,links:links,cols:cols,xs:xs,nc:nc,colTotals:colTotals,areaH:areaH,warns:warns,imbalance:imbalance,
+          yStrip:yStrip,yFoot:yFoot,H:H,hasSummary:hasSummary};
+}
+
+/* ---------- Dibujo ---------- */
+function iconSVG(key, x, y, size, color){
+  var body = ICONS[key];
+  if(body){
+    return '<g transform="translate('+r1(x)+','+r1(y)+') scale('+r1(size/24)+')" fill="none" stroke="'+color+'" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">'+body.replace(/COLOR/g,color)+'</g>';
+  }
+  if(key && String(key).length<=3){
+    return '<text x="'+r1(x+size/2)+'" y="'+r1(y+size*0.72)+'" text-anchor="middle" font-size="'+r1(size*0.8)+'" fill="'+color+'">'+esc(key)+'</text>';
+  }
+  return '';
+}
+function fitFont(text, fs, avail, min){ while(fs>min && String(text).length*fs*0.56>avail) fs-=0.5; return fs; }
+function wrapText(text, maxChars){
+  var words = String(text).split(' '), lines = [], cur = '';
+  words.forEach(function(w){
+    var t = (cur?cur+' ':'')+w;
+    if(t.length<=maxChars) cur = t; else { if(cur) lines.push(cur); cur = w; }
+  });
+  if(cur) lines.push(cur);
+  return lines;
+}
+function textBlock(lines, x, cy, anchor){
+  var total = 0; lines.forEach(function(l){ total += l.fs*1.2; });
+  var y = cy - total/2, out = '';
+  lines.forEach(function(l){
+    var base = y + l.fs*0.95;
+    var tsp = l.parts.map(function(p){
+      return '<tspan'+(p.fs?' font-size="'+p.fs+'"':'')+(p.w?' font-weight="'+p.w+'"':'')+(p.o?' fill-opacity="'+p.o+'"':'')+'>'+esc(p.t)+'</tspan>';
+    }).join('');
+    out += '<text x="'+r1(x)+'" y="'+r1(base)+'" font-size="'+l.fs+'" fill="#fff"'+(anchor?' text-anchor="'+anchor+'"':'')+'>'+tsp+'</text>';
+    y += l.fs*1.2;
+  });
+  return out;
+}
+function cardText(n, colTotal){
+  var avail = CARD_W-ICON_W-24, tx = n.x+ICON_W+14, unit = state.unit;
+  var pct = Math.round(n.value/colTotal*100)+'%';
+  var lines = [];
+  if(n.h>=110){
+    var fs = 19, nl = wrapText(n.name, Math.floor(avail/(fs*0.56)));
+    if(nl.length>2){ nl=[n.name]; fs=fitFont(n.name,fs,avail,12); }
+    nl.forEach(function(t){ lines.push({fs:fs,parts:[{t:t,w:700}]}); });
+    lines.push({fs:30,parts:[{t:fmt(n.value),w:700}]});
+    lines.push({fs:16,parts:[{t:unit,o:.95}]});
+    lines.push({fs:16,parts:[{t:'('+pct+')',o:.95}]});
+  } else if(n.h>=58){
+    lines.push({fs:fitFont(n.name,17,avail,11),parts:[{t:n.name,w:700}]});
+    lines.push({fs:20,parts:[{t:fmt(n.value),w:700},{t:' '+unit,fs:12,o:.95},{t:'  ('+pct+')',fs:12,o:.95}]});
+  } else {
+    lines.push({fs:fitFont(n.name,14,avail,10),parts:[{t:n.name,w:700}]});
+    lines.push({fs:12,parts:[{t:fmt(n.value)+' '+unit+' ('+pct+')'}]});
+  }
+  return textBlock(lines, tx, n.y+n.h/2);
+}
+
+function buildSvg(L, forExport){
+  var o = state, W2 = W, H = L.H, i;
+  var s = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 '+W2+' '+H+'"'+(forExport?' width="'+W2+'" height="'+H+'"':'')+' font-family="'+FONT+'">';
+  s += '<defs><filter id="sh" x="-5%" y="-10%" width="110%" height="130%"><feDropShadow dx="0" dy="2" stdDeviation="3" flood-color="#0B1F44" flood-opacity=".22"/></filter>'
+     + '<linearGradient id="shine" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#fff" stop-opacity=".16"/><stop offset="1" stop-color="#000" stop-opacity=".06"/></linearGradient>';
+  L.nodes.forEach(function(n,k){
+    s += '<clipPath id="cp'+k+'"><rect x="'+r1(n.x)+'" y="'+r1(n.y)+'" width="'+CARD_W+'" height="'+r1(n.h)+'" rx="12"/></clipPath>';
+  });
+  if(o.mode==='gradient'){
+    L.links.forEach(function(l){
+      s += '<linearGradient id="gr'+l.i+'" gradientUnits="userSpaceOnUse" x1="'+r1(l.s.x+CARD_W)+'" x2="'+r1(l.t.x)+'" y1="0" y2="0"><stop offset="0" stop-color="'+l.s.color+'"/><stop offset="1" stop-color="'+l.t.color+'"/></linearGradient>';
+    });
+  }
+  s += '</defs><rect width="'+W2+'" height="'+H+'" fill="#fff"/>';
+
+  // Títulos generales
+  if(o.title) s += '<text x="'+W2/2+'" y="54" text-anchor="middle" font-size="46" font-weight="700" fill="'+INK+'">'+esc(o.title)+'</text>';
+  if(o.subtitle) s += '<text x="'+W2/2+'" y="90" text-anchor="middle" font-size="27" fill="'+GREY+'">'+esc(o.subtitle)+'</text>';
+  if(o.unit) s += '<text x="'+(W2-28)+'" y="78" text-anchor="end" font-size="15" fill="'+GREY+'">Unidades: '+esc(o.unit)+'</text>';
+
+  // Paneles por columna
+  L.cols.forEach(function(cn,ci){
+    var x = L.xs[ci]-10, ttl = (o.colTitles[ci]!=null && String(o.colTitles[ci]).trim()) ? o.colTitles[ci] : 'Columna '+(ci+1);
+    s += '<rect x="'+r1(x)+'" y="98" width="'+(CARD_W+20)+'" height="'+(L.areaH+86)+'" rx="14" fill="#EAF1F9"/>';
+    s += '<text x="'+r1(x+(CARD_W+20)/2)+'" y="130" text-anchor="middle" font-size="23" font-weight="700" fill="'+INK+'">'+esc(ttl)+'</text>';
+    s += '<text x="'+r1(x+(CARD_W+20)/2)+'" y="155" text-anchor="middle" font-size="18" fill="'+INK+'">Total: '+esc(withUnit(L.colTotals[ci]))+'</text>';
+  });
+
+  // Flujos
+  s += '<g fill="none">';
+  L.links.forEach(function(l){
+    var x0 = l.s.x+CARD_W-4, x1 = l.t.x+4, xm = (x0+x1)/2;
+    var d = 'M'+r1(x0)+','+r1(l.y0)+'C'+r1(xm)+','+r1(l.y0)+' '+r1(xm)+','+r1(l.y1)+' '+r1(x1)+','+r1(l.y1);
+    var stroke = o.mode==='gradient' ? 'url(#gr'+l.i+')' : (o.mode==='target' ? l.t.color : l.s.color);
+    s += '<path class="fl" data-i="'+l.i+'" d="'+d+'" stroke="'+stroke+'" stroke-width="'+r1(l.w)+'" stroke-opacity="'+(o.opacity/100)+'"><title>'+esc(l.s.name+' → '+l.t.name+': '+withUnit(l.v))+'</title></path>';
+  });
+  s += '</g>';
+
+  // Tarjetas
+  L.nodes.forEach(function(n,k){
+    var ct = L.colTotals[n.depth];
+    s += '<g class="card" data-k="'+k+'"><title>'+esc(n.name+': '+withUnit(n.value))+'</title>'
+      + '<rect x="'+r1(n.x)+'" y="'+r1(n.y)+'" width="'+CARD_W+'" height="'+r1(n.h)+'" rx="12" fill="'+n.color+'" filter="url(#sh)"/>'
+      + '<g clip-path="url(#cp'+k+')"><rect x="'+r1(n.x)+'" y="'+r1(n.y)+'" width="'+ICON_W+'" height="'+r1(n.h)+'" fill="#000" fill-opacity=".17"/>'
+      + '<rect x="'+r1(n.x)+'" y="'+r1(n.y)+'" width="'+CARD_W+'" height="'+r1(n.h)+'" fill="url(#shine)"/></g>';
+    var isz = n.h<64 ? 38 : 54;
+    s += iconSVG(n.icon, n.x+ICON_W/2-isz/2, n.y+n.h/2-isz/2, isz, '#fff');
+    s += cardText(n, ct) + '</g>';
+  });
+
+  // Franja de resumen
+  if(L.hasSummary){
+    var items = state.summary.filter(function(it){ return String(it.label).trim(); });
+    var stripX = 40, stripW = W2-80, iw = stripW/items.length, y0 = L.yStrip;
+    s += '<rect x="'+stripX+'" y="'+y0+'" width="'+stripW+'" height="92" rx="14" fill="#fff" stroke="#D5DEE9" stroke-width="2"/>';
+    var byName = {}; L.nodes.forEach(function(n){ byName[n.name]=n; });
+    items.forEach(function(it,ix){
+      var x = stripX+ix*iw, key = String(it.node).trim(), val, color, pct = '';
+      if(key.toUpperCase()==='ENTRADA'){ val = L.colTotals[0]; color = '#2E7D32'; }
+      else { var nn = byName[key]; val = nn ? nn.value : 0; color = nn ? nn.color : '#7B8088'; if(L.colTotals[0]>0) pct = '('+Math.round(val/L.colTotals[0]*100)+'%)'; }
+      if(ix>0) s += '<line x1="'+r1(x)+'" y1="'+(y0+14)+'" x2="'+r1(x)+'" y2="'+(y0+78)+'" stroke="#D5DEE9" stroke-width="2"/>';
+      s += iconSVG(it.icon, x+20, y0+24, 44, color);
+      var tx = x+76, availW = iw-90;
+      var lab = wrapText(it.label, Math.max(10, Math.floor(availW/8.2))).slice(0,2);
+      var yy = y0+34;
+      s += '<text x="'+r1(tx)+'" y="'+yy+'" font-size="24" font-weight="700" fill="'+color+'">'+esc(withUnit(val))+'</text>';
+      lab.forEach(function(t,ti){ s += '<text x="'+r1(tx)+'" y="'+(yy+22+ti*18)+'" font-size="15" fill="'+GREY+'">'+esc(t)+'</text>'; });
+      if(pct) s += '<text x="'+r1(tx)+'" y="'+(yy+22+lab.length*18)+'" font-size="15" fill="'+GREY+'">'+pct+'</text>';
+    });
+  }
+  if(o.footer) s += '<text x="'+W2/2+'" y="'+L.yFoot+'" text-anchor="middle" font-size="16" fill="'+GREY+'">'+esc(o.footer)+'</text>';
+  return s+'</svg>';
+}
+
+/* ---------- Render ---------- */
+var stage = $('stage');
+function svgEl(){ return stage.querySelector('svg'); }
+function hl(set){
+  var s = svgEl(); if(!s) return;
+  s.classList.add('dim');
+  s.querySelectorAll('.fl').forEach(function(p){ p.classList.toggle('on', set.has(+p.dataset.i)); });
+}
+function clr(){
+  var s = svgEl(); if(!s) return;
+  s.classList.remove('dim');
+  s.querySelectorAll('.fl.on').forEach(function(p){ p.classList.remove('on'); });
+}
+function renderStage(){
+  L = compute();
+  if(!L.nodes.length){
+    stage.innerHTML = '<div style="padding:80px 20px;text-align:center;color:#5B6577">No hay flujos con valor en este período. Usa «Editar datos» o «Importar CSV».</div>';
+  } else {
+    stage.innerHTML = buildSvg(L,false);
+    stage.querySelectorAll('.card').forEach(function(g){
+      var n = L.nodes[+g.dataset.k];
+      g.addEventListener('mouseenter', function(){ hl(new Set(n.in.concat(n.out).map(function(l){return l.i;}))); });
+      g.addEventListener('mouseleave', clr);
+    });
+    stage.querySelectorAll('.fl').forEach(function(p){
+      p.addEventListener('mouseenter', function(){ hl(new Set([+p.dataset.i])); });
+      p.addEventListener('mouseleave', clr);
+    });
+  }
+  var notes = '';
+  L.warns.forEach(function(w){ notes += '<div class="note">'+esc(w)+'</div>'; });
+  if(L.imbalance && L.imbalance.length){
+    notes += '<div class="note">Estos nodos intermedios no cuadran (entra ≠ sale): '
+      + L.imbalance.map(function(n){ return esc(n.name)+' (entra '+esc(fmt(n.vin))+', sale '+esc(fmt(n.vout))+')'; }).join('; ')+'.</div>';
+  }
+  $('notes').innerHTML = notes;
+  var dl = L.nodes.map(function(n){return n.name;});
+  state.nodes.forEach(function(n){ if(dl.indexOf(n.name)<0) dl.push(n.name); });
+  $('dlNodes').innerHTML = dl.map(function(n){return '<option value="'+esc(n)+'">';}).join('');
+}
+function renderMonths(){
+  $('month').innerHTML = state.months.map(function(m){ return '<option value="'+esc(m)+'"'+(m===state.month?' selected':'')+'>'+esc(m)+'</option>'; }).join('');
+}
+function changed(){ renderStage(); save(); }
+
+$('month').addEventListener('change', function(e){ state.month = e.target.value; changed(); });
+$('dlIcons').innerHTML = Object.keys(ICONS).map(function(k){return '<option value="'+k+'">';}).join('');
+
+/* ---------- Mensajes y descargas ---------- */
+var msgT;
+function flash(t){ var el=$('msg'); el.textContent=t; clearTimeout(msgT); msgT=setTimeout(function(){el.textContent='';},2800); }
+function download(name, blob){
+  try{
+    var url = URL.createObjectURL(blob), a = document.createElement('a');
+    a.href = url; a.download = name; document.body.appendChild(a); a.click();
+    setTimeout(function(){ document.body.removeChild(a); URL.revokeObjectURL(url); },500);
+    flash('Descargando '+name);
+  }catch(e){ flash('No se pudo descargar en este entorno'); }
+}
+function safeName(){ return String(state.month).replace(/[^\w\-]+/g,'_'); }
+
+$('bSvg').addEventListener('click', function(){
+  if(!L || !L.nodes.length){ flash('No hay diagrama'); return; }
+  download('sankey_'+safeName()+'.svg', new Blob(['<?xml version="1.0" encoding="UTF-8"?>\n'+buildSvg(L,true)],{type:'image/svg+xml;charset=utf-8'}));
+});
+$('bPng').addEventListener('click', function(){
+  if(!L || !L.nodes.length){ flash('No hay diagrama'); return; }
+  var svg = buildSvg(L,true), img = new Image();
+  var url = URL.createObjectURL(new Blob([svg],{type:'image/svg+xml;charset=utf-8'}));
+  img.onload = function(){
+    var c = document.createElement('canvas'); c.width = W*2; c.height = L.H*2;
+    var ctx = c.getContext('2d'); ctx.fillStyle = '#fff'; ctx.fillRect(0,0,c.width,c.height);
+    ctx.drawImage(img,0,0,c.width,c.height);
+    URL.revokeObjectURL(url);
+    c.toBlob(function(b){ if(b) download('sankey_'+safeName()+'.png', b); else flash('No se pudo crear la imagen'); },'image/png');
+  };
+  img.onerror = function(){ URL.revokeObjectURL(url); flash('No se pudo crear la imagen'); };
+  img.src = url;
+});
+$('bFull').addEventListener('click', function(){
+  var w = $('stagewrap');
+  try{ if(document.fullscreenElement) document.exitFullscreen(); else w.requestFullscreen(); }
+  catch(e){ flash('Pantalla completa no disponible'); }
+});
+
+/* ---------- CSV ---------- */
+function csvCell(v){ v = String(v==null?'':v); return /[",\n;]/.test(v) ? '"'+v.replace(/"/g,'""')+'"' : v; }
+function toCSV(){
+  var out = [['Origen','Destino'].concat(state.months).map(csvCell).join(',')];
+  state.flows.forEach(function(f){
+    out.push([f.s,f.t].concat(state.months.map(function(m){ var v = Number(f.v[m]); return isFinite(v)?v:0; })).map(csvCell).join(','));
+  });
+  return '\uFEFF'+out.join('\r\n');
+}
+$('bCsv').addEventListener('click', function(){ download('flujos.csv', new Blob([toCSV()],{type:'text/csv;charset=utf-8'})); });
+function splitLine(l,d){
+  var out=[], cur='', q=false;
+  for(var i=0;i<l.length;i++){
+    var c=l[i];
+    if(q){ if(c==='"'){ if(l[i+1]==='"'){cur+='"';i++;} else q=false; } else cur+=c; }
+    else if(c==='"') q=true;
+    else if(c===d){ out.push(cur); cur=''; }
+    else cur+=c;
+  }
+  out.push(cur);
+  return out.map(function(s){return s.trim();});
+}
+function importCSV(text, opts){
+  opts = opts || {};
+  text = text.replace(/^\uFEFF/,'');
+  var lines = text.split(/\r?\n/).filter(function(l){return l.trim();});
+  if(lines.length<2){ flash('El CSV está vacío'); return; }
+  var first = lines[0];
+  var d = first.indexOf('\t')>=0 ? '\t' : (first.split(';').length>first.split(',').length ? ';' : ',');
+  var head = splitLine(first,d);
+  var months = head.slice(2).filter(function(x){return x;});
+  if(!months.length){ flash('Faltan columnas de valores (una por mes)'); return; }
+  var flows = [];
+  for(var i=1;i<lines.length;i++){
+    var r = splitLine(lines[i],d);
+    if(!r[0] || !r[1]) continue;
+    var v = {};
+    months.forEach(function(m,ix){
+      var raw = String(r[2+ix]==null?'':r[2+ix]);
+      if(d!==',') raw = raw.replace(',','.');
+      var n = parseFloat(raw); v[m] = isFinite(n)?n:0;
+    });
+    flows.push({s:r[0],t:r[1],v:v});
+  }
+  if(!flows.length){ flash('No se encontraron flujos'); return; }
+  var withData = months.filter(function(m){ return flows.some(function(f){ return f.v[m]>0; }); });
+  if(withData.length) months = withData;
+  var prev = state.month;
+  state.months = months; state.flows = flows;
+  if(opts.fromSource && state.source.latest) state.month = months[months.length-1];
+  else if(months.indexOf(prev)<0) state.month = months[months.length-1];
+  renderMonths(); changed();
+  if(!$('editor').hidden && curTab!=='fuente') renderEditor();
+  if(!opts.silent) flash('CSV importado: '+flows.length+' flujos, '+months.length+' períodos con datos');
+}
+$('bImport').addEventListener('click', function(){ $('file').click(); });
+$('file').addEventListener('change', function(e){
+  var f = e.target.files[0]; if(!f) return;
+  var rd = new FileReader();
+  rd.onload = function(){ importCSV(String(rd.result)); };
+  rd.readAsText(f,'utf-8');
+  e.target.value = '';
+});
+
+/* ---------- Editor ---------- */
+function openEditor(){ $('editor').hidden = false; renderEditor(); }
+$('bEdit').addEventListener('click', openEditor);
+$('edClose').addEventListener('click', function(){ $('editor').hidden = true; });
+$('edTabs').addEventListener('click', function(e){
+  var b = e.target.closest('button'); if(!b) return;
+  curTab = b.dataset.tab; renderEditor();
+});
+
+function renderEditor(){
+  $('edTabs').querySelectorAll('button').forEach(function(b){ b.classList.toggle('on', b.dataset.tab===curTab); });
+  var b = $('edbody'), h = '';
+  if(curTab==='textos'){
+    h += '<div class="f"><label>Título</label><input type="text" data-k="title" value="'+esc(state.title)+'"></div>'
+      + '<div class="f"><label>Subtítulo</label><input type="text" data-k="subtitle" value="'+esc(state.subtitle)+'"></div>'
+      + '<div class="f"><label>Unidad (por ejemplo TJ, GWh, MWh)</label><input type="text" data-k="unit" value="'+esc(state.unit)+'"></div>'
+      + '<div class="f"><label>Nota al pie</label><input type="text" data-k="footer" value="'+esc(state.footer)+'"></div>'
+      + '<div class="f"><label>Títulos de las columnas (uno por línea, de izquierda a derecha)</label><textarea id="colTitles" rows="4">'+esc(state.colTitles.join('\n'))+'</textarea></div>'
+      + '<div class="f"><label>Color de los flujos</label><select data-k="mode">'
+      + [['source','Según el origen'],['target','Según el destino'],['gradient','Degradado origen → destino']].map(function(o){ return '<option value="'+o[0]+'"'+(state.mode===o[0]?' selected':'')+'>'+o[1]+'</option>'; }).join('')
+      + '</select></div>'
+      + '<div class="f"><label>Opacidad de los flujos: <span id="opv">'+state.opacity+'%</span></label><input type="range" min="15" max="90" step="5" data-k="opacity" value="'+state.opacity+'"></div>'
+      + '<div class="row"><button id="btnReset">Restablecer el ejemplo</button></div>';
+  } else if(curTab==='nodos'){
+    h += '<p class="hint">Cada tarjeta del diagrama. El orden de esta lista es el orden vertical dentro de su columna. La columna se calcula sola según los flujos. En «Ícono» escribe un nombre de la lista (torre, rayo, llama, sol, combustible, fabrica, engranaje, crisol, rollo, o2, motor, hoja, calor, agua, aire, nube) o un solo carácter.</p>';
+    state.nodes.forEach(function(n,i){
+      h += '<div class="nrow" data-i="'+i+'"><div class="mv"><button class="sm" data-a="up" title="Subir">▲</button><button class="sm" data-a="down" title="Bajar">▼</button></div>'
+        + '<input type="text" data-f="name" data-old="'+esc(n.name)+'" value="'+esc(n.name)+'" aria-label="Nombre">'
+        + '<input type="color" data-f="color" value="'+esc(n.color||'#7B8088')+'" aria-label="Color">'
+        + '<input type="text" data-f="icon" list="dlIcons" value="'+esc(n.icon||'')+'" aria-label="Ícono">'
+        + '<button class="sm" data-a="del" title="Quitar">×</button></div>';
+    });
+    h += '<div class="row"><button id="addNode" class="primary">Agregar nodo</button></div>';
+  } else if(curTab==='flujos'){
+    h += '<p class="hint">Una fila por flujo y una columna por período. Cada mes agregas una columna nueva y llenas los valores. Los nombres deben coincidir con los de la pestaña Nodos.</p>'
+      + '<div class="tblwrap"><table><thead><tr><th>Origen</th><th>Destino</th>'
+      + state.months.map(function(m){ return '<th>'+esc(m)+'</th>'; }).join('')+'<th></th></tr></thead><tbody id="ftb">';
+    state.flows.forEach(function(f,i){
+      h += '<tr data-i="'+i+'"><td><input type="text" class="nm" list="dlNodes" data-f="s" value="'+esc(f.s)+'"></td>'
+        + '<td><input type="text" class="nm" list="dlNodes" data-f="t" value="'+esc(f.t)+'"></td>'
+        + state.months.map(function(m){ var v=f.v[m]; return '<td><input type="number" class="n" step="any" min="0" data-m="'+esc(m)+'" value="'+(v==null?'':esc(v))+'"></td>'; }).join('')
+        + '<td><button class="sm" data-a="del" title="Quitar">×</button></td></tr>';
+    });
+    h += '</tbody></table></div><div class="row"><button id="addFlow" class="primary">Agregar flujo</button></div>'
+      + '<div class="row"><input type="text" id="newMonth" placeholder="Nuevo período (Mar, Abr…)"><button id="addMonth">Agregar período</button>'
+      + '<button id="delMonth">Quitar período «'+esc(state.month)+'»</button></div>';
+  } else if(curTab==='fuente'){
+    var so = state.source;
+    h += '<p class="hint">Para que el diagrama se actualice solo, escribe el enlace CSV publicado de tu hoja de Google Sheets (o el nombre de un archivo junto a esta página, por ejemplo flujos.csv, que requiere Live Server o un servidor web).</p>'
+      + '<div class="f"><label>Enlace o archivo CSV de la hoja «Flujos»</label><input type="text" data-k="srcurl" value="'+esc(so.url||'')+'" placeholder="https://docs.google.com/spreadsheets/d/e/…/pub?output=csv"></div>'
+      + '<div class="f"><label>Enlace o archivo CSV de la hoja «Nodos» (opcional: colores e íconos)</label><input type="text" data-k="srcnodes" value="'+esc(so.nodesUrl||'')+'" placeholder="https://docs.google.com/spreadsheets/d/e/…/pub?gid=…&single=true&output=csv"></div>'
+      + '<div class="f"><label class="chk"><input type="checkbox" data-k="srcauto"'+(so.auto?' checked':'')+'> Actualizar automáticamente cada <input type="number" min="1" max="1440" data-k="srcmin" value="'+esc(so.minutes)+'" style="width:70px"> minutos</label></div>'
+      + '<div class="f"><label class="chk"><input type="checkbox" data-k="srclatest"'+(so.latest?' checked':'')+'> Mostrar siempre el último período con datos</label></div>'
+      + '<div class="row"><button id="btnLoad" class="primary">Cargar ahora</button><button id="btnClearSrc">Quitar la fuente</button></div>'
+      + '<p class="hint">Los datos leídos de la fuente reemplazan a los que hayas escrito a mano en las pestañas Nodos y Flujos.</p>';
+  } else {
+    h += '<p class="hint">Indicadores de la franja inferior. En «Nodo» escribe el nombre de un nodo, o ENTRADA para el total de la primera columna. Deja la descripción vacía para no mostrar el indicador.</p>';
+    state.summary.forEach(function(it,i){
+      h += '<div class="srow" data-i="'+i+'"><input type="text" data-f="label" value="'+esc(it.label)+'" placeholder="Descripción">'
+        + '<input type="text" data-f="node" list="dlNodes" value="'+esc(it.node)+'" placeholder="Nodo o ENTRADA">'
+        + '<input type="text" data-f="icon" list="dlIcons" value="'+esc(it.icon||'')+'" placeholder="Ícono">'
+        + '<button class="sm" data-a="del" title="Quitar">×</button></div>';
+    });
+    h += '<div class="row"><button id="addSum" class="primary">Agregar indicador</button></div>';
+  }
+  b.innerHTML = h;
+}
+
+var eb = $('edbody');
+eb.addEventListener('input', function(e){
+  var t = e.target;
+  if(curTab==='textos'){
+    if(t.id==='colTitles'){ state.colTitles = t.value.split('\n'); changed(); return; }
+    var k = t.dataset.k; if(!k) return;
+    state[k] = (k==='opacity') ? +t.value : t.value;
+    if(k==='opacity') $('opv').textContent = t.value+'%';
+    changed();
+  } else if(curTab==='nodos'){
+    var row = t.closest('.nrow'); if(!row || t.dataset.f==='name') return;
+    state.nodes[+row.dataset.i][t.dataset.f] = t.value; changed();
+  } else if(curTab==='flujos'){
+    var tr = t.closest('tr'); if(!tr) return;
+    var f = state.flows[+tr.dataset.i];
+    if(t.dataset.f) f[t.dataset.f] = t.value; else if(t.dataset.m) f.v[t.dataset.m] = t.value;
+    changed();
+  } else if(curTab==='fuente'){
+    var k2 = t.dataset.k;
+    if(k2==='srcurl') state.source.url = t.value.trim();
+    else if(k2==='srcnodes') state.source.nodesUrl = t.value.trim();
+    else if(k2==='srcauto') state.source.auto = t.checked;
+    else if(k2==='srcmin') state.source.minutes = Math.max(1, +t.value||5);
+    else if(k2==='srclatest') state.source.latest = t.checked;
+    save(); setupAuto();
+  } else if(curTab==='resumen'){
+    var sr = t.closest('.srow'); if(!sr) return;
+    state.summary[+sr.dataset.i][t.dataset.f] = t.value; changed();
+  }
+});
+eb.addEventListener('change', function(e){
+  var t = e.target;
+  if(curTab==='nodos' && t.dataset.f==='name'){
+    var row = t.closest('.nrow'), i = +row.dataset.i, old = t.dataset.old, nu = t.value.trim();
+    if(!nu){ t.value = old; return; }
+    state.flows.forEach(function(f){ if(f.s===old) f.s = nu; if(f.t===old) f.t = nu; });
+    state.summary.forEach(function(s){ if(s.node===old) s.node = nu; });
+    state.nodes[i].name = nu; t.dataset.old = nu; changed();
+  }
+});
+eb.addEventListener('click', function(e){
+  var t = e.target.closest('button'); if(!t) return;
+  if(t.id==='btnReset'){
+    if(window.confirm('Se reemplazarán todos tus datos por el ejemplo. ¿Continuar?')){
+      state = defaults(); renderMonths(); changed(); renderEditor();
+    }
+    return;
+  }
+  if(t.id==='btnLoad'){ fetchSource(false); return; }
+  if(t.id==='btnClearSrc'){ state.source.url=''; state.source.nodesUrl=''; save(); setupAuto(); $('upd').textContent=''; renderEditor(); return; }
+  if(t.id==='addNode'){ state.nodes.push({name:'Nuevo nodo',color:PAL[state.nodes.length%PAL.length],icon:''}); renderEditor(); changed(); return; }
+  if(t.id==='addFlow'){ var v={}; state.months.forEach(function(m){v[m]=0;}); state.flows.push({s:'',t:'',v:v}); renderEditor(); changed(); return; }
+  if(t.id==='addSum'){ state.summary.push({label:'',node:'',icon:''}); renderEditor(); return; }
+  if(t.id==='addMonth'){
+    var nm = $('newMonth').value.trim();
+    if(!nm){ flash('Escribe el nombre del período'); return; }
+    if(state.months.indexOf(nm)>=0){ flash('Ese período ya existe'); return; }
+    state.months.push(nm); state.flows.forEach(function(f){ f.v[nm]=0; });
+    state.month = nm; renderMonths(); renderEditor(); changed(); return;
+  }
+  if(t.id==='delMonth'){
+    if(state.months.length<2){ flash('Debe quedar al menos un período'); return; }
+    var mm = state.month;
+    state.months = state.months.filter(function(x){return x!==mm;});
+    state.flows.forEach(function(f){ delete f.v[mm]; });
+    state.month = state.months[0]; renderMonths(); renderEditor(); changed(); return;
+  }
+  var a = t.dataset.a; if(!a) return;
+  if(curTab==='nodos'){
+    var i = +t.closest('.nrow').dataset.i;
+    if(a==='del') state.nodes.splice(i,1);
+    else if(a==='up' && i>0){ var x = state.nodes[i]; state.nodes[i]=state.nodes[i-1]; state.nodes[i-1]=x; }
+    else if(a==='down' && i<state.nodes.length-1){ var y = state.nodes[i]; state.nodes[i]=state.nodes[i+1]; state.nodes[i+1]=y; }
+    renderEditor(); changed();
+  } else if(curTab==='flujos' && a==='del'){
+    state.flows.splice(+t.closest('tr').dataset.i,1); renderEditor(); changed();
+  } else if(curTab==='resumen' && a==='del'){
+    state.summary.splice(+t.closest('.srow').dataset.i,1); renderEditor(); changed();
+  }
+});
+
+/* ---------- Fuente de datos automática ---------- */
+function importNodes(text){
+  text = text.replace(/^\uFEFF/,'');
+  var lines = text.split(/\r?\n/).filter(function(l){return l.trim();});
+  if(lines.length<2) return;
+  var d = lines[0].indexOf('\t')>=0 ? '\t' : (lines[0].split(';').length>lines[0].split(',').length ? ';' : ',');
+  var norm = function(x){ return String(x).toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').trim(); };
+  var head = splitLine(lines[0],d).map(norm);
+  var iN = head.indexOf('nombre'), iC = head.indexOf('color'), iI = head.indexOf('icono');
+  if(iN<0) iN = 0; if(iC<0) iC = 2; if(iI<0) iI = 3;
+  var out = [];
+  for(var i=1;i<lines.length;i++){
+    var r = splitLine(lines[i],d), name = r[iN];
+    if(!name) continue;
+    var col = r[iC] || '';
+    if(!/^#[0-9a-f]{6}$/i.test(col)) col = '';
+    out.push({name:name,color:col,icon:r[iI]||''});
+  }
+  if(out.length) state.nodes = out;
+}
+function getText(url){
+  var u = url + (url.indexOf('?')>=0 ? '&' : '?') + '_=' + Date.now();
+  return fetch(u,{cache:'no-store'}).then(function(r){ if(!r.ok) throw new Error('HTTP '+r.status); return r.text(); });
+}
+function fetchSource(silent){
+  var so = state.source || {};
+  if(!so.url){ if(!silent) flash('Escribe primero el enlace o archivo CSV'); return; }
+  var pNodes = so.nodesUrl ? getText(so.nodesUrl).then(importNodes).catch(function(){}) : Promise.resolve();
+  pNodes.then(function(){ return getText(so.url); }).then(function(t){
+    importCSV(t,{fromSource:true,silent:true});
+    $('upd').textContent = 'Actualizado '+new Date().toLocaleTimeString('es-PE',{hour:'2-digit',minute:'2-digit'});
+    if(!silent) flash('Datos cargados');
+  }).catch(function(e){
+    $('upd').textContent = 'Sin conexión con la fuente';
+    if(!silent) flash('No se pudo leer la fuente ('+e.message+')');
+  });
+}
+var autoT = null;
+function setupAuto(){
+  clearInterval(autoT); autoT = null;
+  if(state.source && state.source.url && state.source.auto){
+    autoT = setInterval(function(){ fetchSource(true); }, Math.max(1, state.source.minutes||5)*60000);
+  }
+}
+$('bSrc').addEventListener('click', function(){ curTab='fuente'; openEditor(); });
+
+/* ---------- Inicio ---------- */
+if(PUBLICADO) document.body.classList.add('pub');
+renderMonths();
+renderStage();
+setupAuto();
+if(state.source && state.source.url) fetchSource(true);
+})();
+</script>
+</body>
+</html>

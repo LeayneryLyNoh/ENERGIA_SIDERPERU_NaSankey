@@ -2,7 +2,7 @@
 <html lang="es">
 <head>
 <meta charset="utf-8">
-<title>Balance Energético Mensual de Planta</title>
+<title>Balance Energético Mensual - SIDERPERU</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <style>
 *{box-sizing:border-box}
@@ -45,6 +45,8 @@ body{
   font-weight:600;cursor:pointer;transition:box-shadow .18s ease,transform .18s ease,border-color .18s ease
 }
 .month-btn:hover{border-color:#8EB3E3;box-shadow:0 4px 10px rgba(22,119,210,.12);transform:translateY(-1px)}
+.month-btn.rf{background:#E6F6E3;border-color:#A8D8A0;color:#2E6B2A}
+.month-btn.rf:hover{border-color:#6FBF66;box-shadow:0 4px 10px rgba(63,160,54,.15)}
 .month-btn.active{background:#1677D2;border-color:#1677D2;color:#fff;box-shadow:0 3px 8px rgba(22,119,210,.22)}
 .toolbar .tool{
   display:inline-flex;align-items:center;gap:7px;
@@ -72,6 +74,8 @@ button:focus-visible,.month-btn:focus-visible{outline:3px solid rgba(22,119,210,
 #stage svg.dim .fl{fill-opacity:.06}
 #stage svg.dim .fl.on{fill-opacity:.9}
 #stage .card{cursor:default}
+#stage .cbtn{cursor:pointer}
+#stage .cbtn:hover rect{stroke:#7CA6D8}
 .stagewrap:fullscreen{align-items:center;padding:0;background:#fff}
 .stagewrap:fullscreen #stage{max-width:none;border-radius:0;box-shadow:none}
 #notes{max-width:1600px;margin:0 auto;padding:0 24px 24px}
@@ -125,8 +129,8 @@ td input.nm{min-width:150px}
 <header class="top">
   <img class="logo left" src="GERDAU.png" alt="GERDAU" onerror="this.style.display='none'">
   <div class="brandblock">
-    <h1 id="hTitle">Balance Energético Mensual de Planta</h1>
-    <p id="hSub">Distribución de fuentes energéticas, consumo por procesos y aprovechamiento final</p>
+    <h1 id="hTitle">Balance Energético Mensual - SIDERPERU</h1>
+    <p id="hSub">Distribución de fuentes energéticas, consumo por procesos y KPIs Global</p>
   </div>
   <img class="logo right" src="SIDER.png" alt="SIDERPERU" onerror="this.style.display='none'">
 </header>
@@ -146,6 +150,7 @@ td input.nm{min-width:150px}
   <button id="bCsv" class="tool">Descargar CSV</button>
   <button id="bPng" class="tool">Exportar PNG</button>
   <button id="bSvg" class="tool">Exportar SVG</button>
+  <button id="bSankey" class="tool">Descargar solo Sankey</button>
   <button id="bFull" class="tool">Pantalla completa</button>
   <span id="msg" role="status" aria-live="polite"></span>
   <span id="upd"></span>
@@ -174,6 +179,143 @@ var W = 1600, CARD_W = 270, ICON_W = 96, GAP = 14, MINH0 = 68, TOP = 112;
 var INK = '#14235A', GREY = '#5B6577';
 var FONT = 'Segoe UI, Arial, Helvetica, sans-serif';
 var KEY = 'sankey-energia-incluido-v1';
+var EXTRA = 0;   // ancho añadido a la derecha para las columnas $ y $/t
+/* ===== COSTOS (US$/ton) de «Costos-_TON.xlsx», hoja RATIO US$-TON: ene–dic 2026. 0 = sin dato ===== */
+var COSTO = {
+  ee:{ace:[25.94,25.89,49.47,25.31,26.53,28.28,27.50,28.29,25.97,27.93,28.06,28.06],
+      lar:[4.58,7.19,4.58,4.70,4.97,4.71,4.77,4.62,5.57,5.00,7.43,6.03],
+      tub:[1.88,4.04,1.93,1.97,2.24,2.78,2.89,2.61,2.17,2.56,0,2.88]},
+  gn:{ace:[4.21,4.38,4.71,4.62,4.93,4.89,4.63,4.82,4.78,4.70,4.71,4.73],
+      lar:[12.28,11.80,11.66,12.37,11.92,12.70,12.58,11.87,13.11,12.52,12.63,12.50],
+      tub:[15.11,0,15.89,15.47,16.64,0,0,0,0,0,0,0]},
+  o2:{ace:[2.14,2.36,2.21,2.44,2.55,2.57,2.49,2.58,3.57,2.29,2.45,2.36],
+      l1:[1.17,1.28,1.01,1.23,1.28,1.12,1.08,1.12,2.71,1.16,1.24,1.19],
+      l2:[0.92,0.92,0.89,0.97,0.95,1.00,0.92,0.84,2.44,1.04,1.09,1.06]}
+};
+function f2(v){ return Number(v).toLocaleString('de-DE',{minimumFractionDigits:2,maximumFractionDigits:2}); }
+var MES = ['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Set','Oct','Nov','Dic'];
+var CL = {ee:'EE',gn:'GN',o2:'O₂'}, NAMES = {ee:'Energía eléctrica',gn:'Gas natural',o2:'Oxígeno',tot:'Total'};
+var costSel = 'tot', CHART_H = 330, SEL_H = 58;
+var AREAS = [
+  {k:'ace',name:'Acería',match:'acer',comps:{ee:[COSTO.ee.ace],gn:[COSTO.gn.ace],o2:[COSTO.o2.ace]}},
+  {k:'lar',name:'Laminación',match:'lamin',comps:{ee:[COSTO.ee.lar],gn:[COSTO.gn.lar],o2:[COSTO.o2.l1,COSTO.o2.l2]}},
+  {k:'tub',name:'Tubos y Viales',match:'tubos',comps:{ee:[COSTO.ee.tub],gn:[COSTO.gn.tub]}}
+];
+function mIdx(lb){
+  var p = normKey(String(lb)).slice(0,3), i = ['ene','feb','mar','abr','may','jun','jul','ago','set','oct','nov','dic'].indexOf(p);
+  return p==='sep' ? 8 : i;
+}
+function rfMonths(){
+  var ms = cur.months; if(!ms || !ms.length) return [];
+  var last = ms[ms.length-1], li = mIdx(last), yy = String(last).split('-')[1], out = [];
+  if(li<0) return out;
+  for(var i=li+1;i<12;i++) out.push({label:MES[i]+(yy?'-'+yy:''), short:MES[i]+' RF'});
+  return out;
+}
+function rfFrom(){ var ms = cur.months, li = (ms && ms.length) ? mIdx(ms[ms.length-1]) : -1; return li<0 ? 12 : li+1; }
+function monthIdx(){
+  var m = normKey(cur.month||''), p = m.slice(0,3), k = ['ene','feb','mar','abr','may','jun','jul','ago','set','oct','nov','dic'], i = k.indexOf(p);
+  if(p==='sep') i = 8;
+  return (i>=0 && (!/\d/.test(m) || /26/.test(m))) ? i : -1;
+}
+function areaOf(n){ var nm = normKey(n.name); return AREAS.filter(function(a){ return nm.indexOf(a.match)===0; })[0] || null; }
+function compVal(a,key,mi){
+  var arr = a.comps[key]; if(!arr) return null;
+  var v = null; arr.forEach(function(s){ if(s[mi]) v = (v||0)+s[mi]; });
+  return v;
+}
+function costOf(n,mi){
+  var a = areaOf(n); if(!a) return null;
+  var tot = 0, parts = [], miss = [];
+  Object.keys(a.comps).forEach(function(k){
+    var v = compVal(a,k,mi);
+    if(v==null) miss.push(CL[k]); else { tot += v; parts.push(CL[k]+' '+f2(v)); }
+  });
+  return parts.length ? {a:a,tot:tot,parts:parts,miss:miss} : null;
+}
+function serie(a,key){
+  return MES.map(function(_,i){
+    if(key!=='tot') return compVal(a,key,i);
+    var t = 0, ok = true;
+    Object.keys(a.comps).forEach(function(k){ var v = compVal(a,k,i); if(v==null) ok = false; else t += v; });
+    return ok ? t : null;
+  });
+}
+function costInfo(L){
+  if(view!=='tj' || !L || !L.cols || L.nc<2) return null;
+  var mi = monthIdx(); if(mi<0) return null;
+  var rows = new Map(), colors = {}, partial = false;
+  L.cols[L.nc-1].forEach(function(n){ var c = costOf(n,mi); if(c){ rows.set(n,c); colors[c.a.k] = n.color; if(c.miss.length) partial = true; } });
+  if(!rows.size) return null;
+  return {rows:rows, colors:colors, mi:mi, note:'<div class="note">Costos ($/t) de «Costos-_TON.xlsx»: Acería, Laminación (O₂ = laminadores 01 + 02) y Tubos y Viales. 0 en el archivo = sin dato. En el total solo se muestran los meses con todos los componentes del área. Los meses en verde (RF) aún no tienen datos del balance.</div>'};
+}
+function costSelector(y0){
+  var s = '<text x="38" y="'+(y0+26)+'" font-size="18" font-weight="700" fill="'+INK+'">US$/TON):</text>', x = 232;
+  ['ee','gn','o2','tot'].forEach(function(k){
+    var lb = NAMES[k], w = Math.max(84,Math.round(lb.length*16*.56)+40), on = k===costSel;
+    s += '<g class="cbtn" data-cost="'+k+'" role="button" aria-pressed="'+on+'"><rect x="'+x+'" y="'+y0+'" width="'+w+'" height="38" rx="10" fill="'+(on?'#1677D2':'#fff')+'" stroke="'+(on?'#1677D2':'#C9D6E6')+'" stroke-width="1.5"/>'
+      + '<text x="'+(x+w/2)+'" y="'+(y0+25)+'" text-anchor="middle" font-size="16" font-weight="700" fill="'+(on?'#fff':INK)+'">'+lb+'</text></g>';
+    x += w+12;
+  });
+  return s;
+}
+function areasFor(CI){ var sel = costSel; return AREAS.filter(function(a){ return CI.colors[a.k] && (sel==='tot' || a.comps[sel]); }); }
+function tblH(n){ return 84+n*38+30; }
+function costH(CI){ var n = areasFor(CI).length; return n ? SEL_H+tblH(n)+CHART_H : 0; }
+function costTable(L,CI,ar,y0){
+  if(!ar.length) return '';
+  var sel = costSel, x0 = 38, tw = W+EXTRA-76, nw = 230, cm = (tw-nw-20)/12, mi = CI.mi, ph = 84+ar.length*38+6, rf = rfFrom();
+  var s = '<rect x="'+x0+'" y="'+y0+'" width="'+tw+'" height="'+ph+'" rx="14" fill="#F1F5FA"/>'
+    + '<text x="'+(x0+20)+'" y="'+(y0+34)+'" font-size="20" font-weight="700" fill="'+INK+'">'+esc('Datos mes a mes por área · '+NAMES[sel])+'</text>'
+    + '<text x="'+(x0+20)+'" y="'+(y0+54)+'" font-size="13" fill="'+GREY+'">US$/t, 2026 · el mes seleccionado va resaltado'+(rf<12?' · en verde: meses RF, sin datos de balance':'')+'</text>';
+  MES.forEach(function(m,i){
+    s += '<text x="'+r1(x0+nw+cm*i+cm/2)+'" y="'+(y0+76)+'" text-anchor="middle" font-size="14" font-weight="700" fill="'+(i>=rf?'#2E6B2A':(i===mi?INK:GREY))+'">'+m+(i>=rf?' RF':'')+'</text>';
+  });
+  ar.forEach(function(a,ri){
+    var ry = y0+86+ri*38, vals = serie(a,sel);
+    s += '<rect x="'+(x0+12)+'" y="'+ry+'" width="'+(tw-24)+'" height="34" rx="8" fill="#fff"/>'
+      + '<circle cx="'+(x0+30)+'" cy="'+(ry+17)+'" r="6" fill="'+CI.colors[a.k]+'"/>'
+      + '<text x="'+(x0+44)+'" y="'+(ry+22)+'" font-size="16" font-weight="600" fill="'+INK+'">'+esc(a.name)+'</text>';
+    vals.forEach(function(v,i){
+      s += '<text x="'+r1(x0+nw+cm*i+cm/2)+'" y="'+(ry+22)+'" text-anchor="middle" font-size="15" fill="'+(v==null?'#9AA5B5':INK)+'"'+(i===mi?' font-weight="700"':'')+'>'+(v==null?'–':f2(v))+'</text>';
+    });
+  });
+  if(rf<12) s += '<rect x="'+r1(x0+nw+cm*rf)+'" y="'+(y0+60)+'" width="'+r1(cm*(12-rf))+'" height="'+(ar.length*38+22)+'" rx="8" fill="#7FCB78" fill-opacity=".22"/>';
+  return s + '<rect x="'+r1(x0+nw+cm*mi)+'" y="'+(y0+60)+'" width="'+r1(cm)+'" height="'+(ar.length*38+22)+'" rx="8" fill="#1677D2" fill-opacity=".12"/>';
+}
+function costCharts(L,CI,y0){
+  var sel = costSel, as = AREAS.filter(function(a){ return a.k!=='tub' && CI.colors[a.k] && (sel==='tot' || a.comps[sel]); });
+  if(!as.length) return '';
+  var s = '', gap = 20, x0 = 38, tw = W+EXTRA-76, pw = (tw-gap*(as.length-1))/as.length, ph = CHART_H-10, l = 48, r = 22, t = 70, b = 34, ih = ph-t-b, mi = CI.mi;
+  as.forEach(function(a,ai){
+    var px = x0+ai*(pw+gap), vals = serie(a,sel), col = CI.colors[a.k], real = vals.filter(function(v){ return v!=null; }), iw = pw-l-r, cv = vals[mi], rf = rfFrom();
+    s += '<rect x="'+r1(px)+'" y="'+y0+'" width="'+r1(pw)+'" height="'+ph+'" rx="14" fill="#F1F5FA"/>'
+      + '<text x="'+r1(px+20)+'" y="'+(y0+34)+'" font-size="20" font-weight="700" fill="'+INK+'">'+esc(a.name+' · '+NAMES[sel])+'</text>'
+      + '<text x="'+r1(px+20)+'" y="'+(y0+55)+'" font-size="13" fill="'+GREY+'">US$/t por mes, 2026</text>'
+      + '<text x="'+r1(px+pw-20)+'" y="'+(y0+34)+'" text-anchor="end" font-size="18" font-weight="700" fill="'+col+'">'+MES[mi]+': '+(cv!=null?f2(cv):'sin dato')+'</text>';
+    if(!real.length){ s += '<text x="'+r1(px+pw/2)+'" y="'+(y0+t+ih/2)+'" text-anchor="middle" font-size="16" fill="'+GREY+'">Sin datos</text>'; return; }
+    var max = Math.max.apply(null,real), raw = max/3, mag = Math.pow(10,Math.floor(Math.log10(raw))),
+        step = [1,2,2.5,5,10].filter(function(q){ return q*mag>=raw; })[0]*mag, top = step*Math.ceil(max/step), n = Math.round(top/step),
+        X = function(i){ return px+l+iw*i/11; }, Y = function(v){ return y0+t+ih*(1-v/top); };
+    if(rf<12){ var bx = X(rf)-iw/22, bw = Math.min(X(11)+iw/22, px+pw-6)-bx; s += '<rect x="'+r1(bx)+'" y="'+(y0+t-14)+'" width="'+r1(bw)+'" height="'+(ih+14)+'" rx="8" fill="#7FCB78" fill-opacity=".22"/>'; }
+    s += '<rect x="'+r1(X(mi)-24)+'" y="'+(y0+t-14)+'" width="48" height="'+(ih+14)+'" rx="8" fill="#DCE8F8"/>';
+    for(var k=0;k<=n;k++){ var gv = k*step, gy = Y(gv);
+      s += '<line x1="'+(px+l)+'" x2="'+r1(px+pw-r)+'" y1="'+r1(gy)+'" y2="'+r1(gy)+'" stroke="#D6DFEA"/><text x="'+(px+l-8)+'" y="'+r1(gy+4)+'" text-anchor="end" font-size="12" fill="'+GREY+'">'+Number(gv.toFixed(2))+'</text>'; }
+    var d = '', pen = false;
+    vals.forEach(function(v,i){
+      s += '<text x="'+r1(X(i))+'" y="'+(y0+ph-12)+'" text-anchor="middle" font-size="'+(i>=rf?11:12)+'" fill="'+(i>=rf?'#2E6B2A':(i===mi?INK:GREY))+'"'+(i===mi?' font-weight="700"':'')+'>'+MES[i]+(i>=rf?' RF':'')+'</text>';
+      if(v==null){ pen = false; return; }
+      d += (pen?'L':'M')+r1(X(i))+' '+r1(Y(v)); pen = true;
+    });
+    s += '<path d="'+d+'" fill="none" stroke="'+col+'" stroke-width="2.8" stroke-linejoin="round"/>';
+    vals.forEach(function(v,i){
+      if(v==null) return;
+      s += '<circle cx="'+r1(X(i))+'" cy="'+r1(Y(v))+'" r="'+(i===mi?6:3.6)+'" fill="'+col+'"/>'
+        + '<text x="'+r1(X(i))+'" y="'+r1(Y(v)-11)+'" text-anchor="middle" font-size="'+(i===mi?13:11)+'" fill="'+INK+'"'+(i===mi?' font-weight="700"':'')+'>'+f2(v)+'</text>';
+    });
+  });
+  return s;
+}
 var SUMMARY_V = 2;   // sube este número si cambias «resumen» y quieres que reemplace lo guardado en el navegador
 
 /* ================= CONFIGURACIÓN =================
@@ -181,8 +323,8 @@ var SUMMARY_V = 2;   // sube este número si cambias «resumen» y quieres que r
    Los datos se leen directamente de tu libro de Excel (hojas «Flujos» y «Nodos»)
    con el botón «Cargar Excel». Aquí solo se definen los textos del diagrama. */
 var CONFIGURACION = {
-  titulo: 'Balance Energético Mensual de Planta',
-  subtitulo: 'Distribución de fuentes energéticas, consumo por procesos y aprovechamiento final',
+  titulo: 'Balance Energético Mensual - SIDERPERU',
+  subtitulo: 'Distribución de fuentes energéticas, consumo por procesos y KPIs Global',
   unidad: 'TJ',
   nota: 'Actualización mensual',
   columnas: ['Fuentes de energía','Procesos / consumidores','Destino final'],
@@ -196,11 +338,11 @@ var CONFIGURACION = {
 };
 /* ================================================== */
 
-/* ===== DATOS INCLUIDOS: copia de tu Excel «matriz_energetica.xlsx» (hojas Flujos y Nodos) =====
+/* ===== DATOS INCLUIDOS: copia de tu Excel «MATRIZ_ENERGÉTICA_-_SIDERPERU.xlsx» (hojas Flujos y Nodos) =====
    Con esto la página abre ya con el balance dibujado, en cualquier PC, sin cargar nada.
    Para actualizar: botón «Cargar Excel» (o «Actualizar desde Excel»). Lo que cargues
    reemplaza a estos datos y queda guardado en ese navegador. */
-var INCLUIDO = {"file":"matriz_energetica.xlsx","at":1791150016655,"months":["Ene-26","Feb-26","Mar-26","Abr-26","May-26","Jun-26","Jul-26","Ago-26"],"nodes":[["DIESEL","#7B8088","combustible"],["GAS NATURAL","#EE7B1E","llama"],["ELECTRICIDAD SIN APCI","#1B6FCC","torre"],["ANTRACITA","#3B4252","engranaje"],["Soporte Industrial","#2FA69C","engranaje"],["Acería","#A81E1E","crisol"],["Patio Chatarra","#7B8088","fabrica"],["Laminación","#E8711A","rollo"],["Tubos y Viales","#EBAA10","rollo"],["Logística","#6A4DB3","motor"],["VSA (SIDER)","#1C6BB8","o2"],["ASU (APCI)","#4C74C9","aire"],["Hydro Metals","#6B7A8F","fabrica"],["Santa","#B8527D","hoja"],["Coishco","#8A6D3B","engranaje"],["Transporte","#5B7083","combustible"],["Equipos Móviles","#8C6D46","engranaje"],["Energía Solar","#E5A100","sol"]],"flows":[["ELECTRICIDAD SIN APCI","Soporte Industrial",[1.120878,1.260205,1.5543,1.181567,1.350929,1.269252,1.166929,1.252058]],["ELECTRICIDAD SIN APCI","Acería",[69.156115,60.785201,69.040476,64.430496,67.299919,63.163447,67.484444,66.130722]],["ELECTRICIDAD SIN APCI","Patio Chatarra",[0.719284,0.673348,0.585659,0.710464,0.798538,0.712454,0.562111,0.771199]],["ELECTRICIDAD SIN APCI","Laminación",[15.858745,15.514542,16.801628,13.471232,12.264228,15.148102,16.298039,17.161862]],["ELECTRICIDAD SIN APCI","Tubos y Viales",[0.958428,0.770234,1.052719,1.026832,1.260536,1.248023,1.310069,1.145689]],["ELECTRICIDAD SIN APCI","Logística",[0.525089,0.446216,0.547776,0.503672,0.619722,0.494251,0.504436,0.5945]],["ELECTRICIDAD SIN APCI","VSA (SIDER)",[3.776396,3.41348,3.971322,3.767688,3.850506,3.722472,3.85403,3.910885]],["ELECTRICIDAD SIN APCI","Hydro Metals",[0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0]],["ELECTRICIDAD SIN APCI","Santa",[0.081806,0.112475,0.141404,0.154508,0.127123,0.118598,0.150912,0.167666]],["ELECTRICIDAD SIN APCI","Coishco",[0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0]],["GAS NATURAL","Acería",[14.224265,13.075309,15.621159,14.674774,16.469424,14.742297,15.191751,15.779418]],["GAS NATURAL","Patio Chatarra",[0.36927,0.29014,0.315462,0.376655,0.38193,0.393536,0.391426,0.418857]],["GAS NATURAL","Laminación",[58.672719,55.431587,59.848052,47.499676,42.00811,57.704178,61.822061,62.631289]],["GAS NATURAL","Tubos y Viales",[0.908403,0.48005,1.006523,0.94322,1.019184,0.55707,0.528583,0.568675]],["DIESEL","Transporte",[4.201233,3.561869,3.977561,4.130544,3.57453,3.494345,3.616732,4.096782]],["DIESEL","Equipos Móviles",[0.081239,0.08757,0.080184,0.08546,0.063303,0.077019,0.080184,0.088625]],["Energía Solar","Soporte Industrial",[0.264575,0.241618,0.241618,0.241618,0.127274,0.142326,0.142326,0.174406]],["Energía Solar","Soporte Industrial",[0.013428,0.013428,0.013428,0.013428,0.013428,0.013428,0.013428,0.013428]]]};
+var INCLUIDO = {"file":"MATRIZ_ENERG\u00c9TICA_-_SIDERPERU.xlsx","at":1793811600000,"months":["Ene-26","Feb-26","Mar-26","Abr-26","May-26","Jun-26","Jul-26","Ago-26","Set-26","Oct-26"],"nodes":[["DIESEL","#7B8088","combustible"],["GAS NATURAL","#EE7B1E","llama"],["ELECTRICIDAD SIN APCI","#1B6FCC","torre"],["ANTRACITA","#3B4252","engranaje"],["OX\u00cdGENO (equiv.)","#2FA6C9","o2"],["NITR\u00d3GENO (equiv.)","#6C7FD1","aire"],["Soporte Industrial","#2FA69C","engranaje"],["Acer\u00eda","#A81E1E","crisol"],["Patio Chatarra","#7B8088","fabrica"],["Laminaci\u00f3n","#E8711A","rollo"],["Tubos y Viales","#EBAA10","rollo"],["Log\u00edstica","#6A4DB3","motor"],["VSA (SIDER)","#1C6BB8","o2"],["ASU (APCI)","#4C74C9","aire"],["Hydro Metals","#6B7A8F","fabrica"],["Santa","#B8527D","hoja"],["Coishco","#8A6D3B","engranaje"],["Transporte","#5B7083","combustible"],["Equipos M\u00f3viles","#8C6D46","engranaje"],["Energ\u00eda Solar","#E5A100","sol"]],"flows":[["ELECTRICIDAD SIN APCI","Soporte Industrial",[1.120878,1.260205,1.5543,1.181567,1.350929,1.269252,1.166929,1.252058,0.982565,1.179866]],["ELECTRICIDAD SIN APCI","Acer\u00eda",[69.156115,60.785201,69.040476,64.430496,67.299919,63.163447,67.484444,66.130722,41.582788,65.225452]],["ELECTRICIDAD SIN APCI","Patio Chatarra",[0.719284,0.673348,0.585659,0.710464,0.798538,0.712454,0.562111,0.771199,0.560796,0.693307]],["ELECTRICIDAD SIN APCI","Laminaci\u00f3n",[15.858745,15.514542,16.801628,13.471232,12.264228,15.148102,16.298039,17.161862,10.212498,17.392569]],["ELECTRICIDAD SIN APCI","Tubos y Viales",[0.958428,0.770234,1.052719,1.026832,1.260536,1.248023,1.310069,1.145689,1.00626,1.329389]],["ELECTRICIDAD SIN APCI","Log\u00edstica",[0.525089,0.446216,0.547776,0.503672,0.619722,0.494251,0.504436,0.5945,0.484505,0.577953]],["ELECTRICIDAD SIN APCI","VSA (SIDER)",[3.776396,3.41348,3.971322,3.767688,3.850506,3.722472,3.85403,3.910885,3.435254,3.893871]],["ELECTRICIDAD SIN APCI","Hydro Metals",[0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0]],["ELECTRICIDAD SIN APCI","Santa",[0.081806,0.112475,0.141404,0.154508,0.127123,0.118598,0.150912,0.167666,0.13165,0.157734]],["ELECTRICIDAD SIN APCI","Coishco",[0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0]],["GAS NATURAL","Acer\u00eda",[14.224265,13.075309,15.621159,14.674774,16.469424,14.742297,15.191751,15.779418,9.870555,16.060667]],["GAS NATURAL","Patio Chatarra",[0.36927,0.29014,0.315462,0.376655,0.38193,0.393536,0.391426,0.418857,0.321216,0.382822]],["GAS NATURAL","Laminaci\u00f3n",[58.672719,55.431587,59.848052,47.499676,42.00811,57.704178,61.822061,62.631289,35.532638,64.268179]],["GAS NATURAL","Tubos y Viales",[0.908403,0.48005,1.006523,0.94322,1.019184,0.55707,0.528583,0.568675,0.601618,0.339393]],["DIESEL","Transporte",[4.201233,3.561869,3.977561,4.130544,3.57453,3.494345,3.616732,4.096609,3.736109,3.819049]],["DIESEL","Equipos M\u00f3viles",[0.081239,0.08757,0.080184,0.08546,0.063303,0.077019,0.080184,0.088688,0.082666,0.078012]],["OX\u00cdGENO (equiv.)","Acer\u00eda",[0.0,2.078784,2.596897,2.371574,2.432162,2.551314,2.539069,2.571416,1.656756,2.463362]],["OX\u00cdGENO (equiv.)","Patio Chatarra",[0.0,0.2292,0.260807,0.238787,0.2356,0.221727,0.188407,0.205631,0.193247,0.208172]],["OX\u00cdGENO (equiv.)","Laminaci\u00f3n",[0.0,1.50682,1.693518,1.305872,1.037584,1.621671,1.553787,1.603701,0.891641,1.539925]],["OX\u00cdGENO (equiv.)","Tubos y Viales",[0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0]],["NITR\u00d3GENO (equiv.)","Acer\u00eda",[0.23052,0.201684,0.235435,0.218604,0.221351,0.266169,0.250458,0.266998,0.165344,0.272938]],["Energ\u00eda Solar","Soporte Industrial",[0.264575,0.241618,0.241618,0.241618,0.127274,0.142326,0.142326,0.174406,0.217055,0.25596]],["Energ\u00eda Solar","Soporte Industrial",[0.013428,0.013428,0.013428,0.013428,0.013428,0.013428,0.013428,0.013428,0.013428,0.013428]]],"gases":{"o2":{"months":["Feb-26","Mar-26","Abr-26","May-26","Jun-26","Jul-26","Ago-26","Set-26","Oct-26"],"flows":[["VSA (SIDER)","Acer\u00eda \u00b7 Horno El\u00e9ctrico",[1048403.0,1310460.0,1200240.0,1220498.0,1243305.0,1248944.0,1260543.4173669468,810224.0896358544,1210515.4061355575]],["ASU (APCI)","Acer\u00eda \u00b7 Colada Continua III",[19574.0,24724.0,19211.0,29821.0,67837.0,56976.0,61945.03919364636,41507.250016944265,56629.34956866063]],["ASU (APCI)","Acer\u00eda \u00b7 Taller de Cucharas",[3784.0,4384.0,3965.0,4162.0,4509.0,4131.0,4206.226144282025,2824.781539788292,3953.1477240237004]],["ASU (APCI)","Acer\u00eda \u00b7 Mant. Electromec\u00e1nico",[7567.0,8769.0,7930.0,8324.0,9019.0,8261.0,8412.45228856405,5649.563079576584,7906.295448047401]],["VSA (SIDER)","Patio Chatarra \u00b7 Oxicorte",[23806.0,27146.0,22916.0,25901.0,46176.0,29500.0,41121.84845938358,43840.336591036306,44802.521007407486]],["ASU (APCI)","Patio Chatarra \u00b7 Oxicorte",[95197.0,108268.0,101065.0,96424.0,68946.0,68323.0,65643.82051624176,56495.36702851464,63282.79806005829]],["VSA (SIDER)","Laminaci\u00f3n \u00b7 Horno Tochos",[453919.0,493779.0,466626.0,196205.0,487171.0,471693.0,491038.65475568373,145883.23204601186,454993.2951056682]],["ASU (APCI)","Laminaci\u00f3n \u00b7 Laminador 1",[16053.0,16420.0,14865.0,15549.0,18702.0,16831.0,16629.30954290632,13216.918454074936,15433.380479683981]],["VSA (SIDER)","Laminaci\u00f3n \u00b7 Horno OFU",[288307.0,344463.0,174235.0,303649.0,308065.0,292972.0,300046.7794179858,284024.3309270863,305968.88975136663]],["ASU (APCI)","Laminaci\u00f3n \u00b7 Laminador 2",[16855.0,17241.0,15608.0,16326.0,19637.0,17672.0,17460.775020051635,13877.764376778681,16205.04950366818]],["ASU (APCI)","Laminaci\u00f3n \u00b7 Corte de Palanquillas",[3211.0,3284.0,2973.0,3110.0,3740.0,3366.0,3325.861908581264,2643.383690814987,3086.676095936796]],["ASU (APCI)","Laminaci\u00f3n \u00b7 Mant. Electromec\u00e1nico",[4013.0,4105.0,3716.0,3887.0,4675.0,4208.0,4157.32738572658,3304.229613518734,3858.3451199209953]]]},"n2":{"months":["Ene-26","Feb-26","Mar-26","Abr-26","May-26","Jun-26","Jul-26","Ago-26","Set-26","Oct-26"],"flows":[["ASU (APCI)","Acer\u00eda \u00b7 Horno de Cuchara",[213444.0,186744.0,217995.0,202411.0,204955.0,246453.0,231906.0,247220.13400000002,153096.514,252720.69400000002]]]}}};
 /* ============================================================================================ */
 var PAL = ['#1B6FCC','#EE7B1E','#3E9B3E','#7B8088','#A81E1E','#EBAA10','#6A4DB3','#DC3535','#2FA69C','#B8527D'];
 
@@ -468,7 +610,12 @@ function cardText(n, colTotal){
     lines.push({fs:16,parts:[{t:unit,o:.95}]});
     lines.push({fs:16,parts:[{t:'('+pct+')',o:.95}]});
   } else if(n.h>=58){
-    lines.push({fs:fitFont(n.name,17,avail,11),parts:[{t:n.name,w:700}]});
+    var f1=fitFont(n.name,17,avail,11);
+    if(String(n.name).length*f1*0.56>avail){
+      var wl=wrapText(n.name,Math.floor(avail/(12*0.56)));
+      if(wl.length>2){ wl=wl.slice(0,2); wl[1]=wl[1].slice(0,-1)+'…'; }
+      wl.forEach(function(t){ lines.push({fs:12,parts:[{t:t,w:700}]}); });
+    } else lines.push({fs:f1,parts:[{t:n.name,w:700}]});
     var vfs=fitFont(fmt(n.value),20,Math.max(40,avail-(unit.length+pct.length+6)*6.7),11);
     lines.push({fs:vfs,parts:[{t:fmt(n.value),w:700},{t:' '+unit,fs:12,o:.95},{t:'  ('+pct+')',fs:12,o:.95}]});
   } else {
@@ -496,8 +643,8 @@ function monthlyMetrics(){
   });
 }
 
-function buildSvg(L, forExport){
-  var o=cur, W2=W, H=L.H, s='';
+function buildSvg(L, forExport, noCost){
+  var o=cur, CI=noCost?null:costInfo(L), W2=W+(CI?EXTRA:0), H=L.H+(CI?costH(CI):0), s='';
   var metrics=monthlyMetrics();
   var stripY=L.yStrip, stripH=132;
   var trendX=1120, trendW=440, trendY=stripY+10, trendH=112;
@@ -553,6 +700,8 @@ function buildSvg(L, forExport){
     s+=iconSVG(n.icon,n.x+ICON_W/2-isz/2,n.y+n.h/2-isz/2,isz,'#fff');
     s+=cardText(n,ct)+'</g>';
   });
+
+  if(CI){ var ar=areasFor(CI), yy=L.yFoot+2; s+=costSelector(yy); s+=costTable(L,CI,ar,yy+SEL_H); s+=costCharts(L,CI,yy+SEL_H+tblH(ar.length)); }
 
   // Franja inferior: totalizadores (KPIs) y tendencia mensual, ambos vinculados a cur.summary
   var byName={}; L.nodes.forEach(function(n){byName[n.name]=n;});
@@ -645,7 +794,7 @@ function renderStage(){
       p.addEventListener('mouseleave', clr);
     });
   }
-  var notes = '';
+  var notes = ''; var CIn = L.nodes.length ? costInfo(L) : null; if(CIn) notes += CIn.note;
   L.warns.forEach(function(w){ notes += '<div class="note">'+esc(w)+'</div>'; });
   if(L.imbalance && L.imbalance.length){
     notes += '<div class="note">Estos nodos intermedios no cuadran (entra ≠ sale): '
@@ -662,6 +811,8 @@ function renderMonths(){
   if(tabs){
     tabs.innerHTML=cur.months.map(function(m){
       return '<button type="button" class="month-btn'+(m===cur.month?' active':'')+'" data-month="'+esc(m)+'">'+esc(m)+'</button>';
+    }).join('') + rfMonths().map(function(r){
+      return '<button type="button" class="month-btn rf" data-rf="1" title="Sin datos del balance">'+esc(r.short)+'</button>';
     }).join('');
   }
 }
@@ -673,8 +824,10 @@ function showMeta(){
 }
 
 $('month').addEventListener('change', function(e){ setMonth(e.target.value); });
+stage.addEventListener('click', function(e){ var b = e.target.closest('[data-cost]'); if(b){ costSel = b.dataset.cost; renderStage(); } });
 $('monthTabs').addEventListener('click', function(e){
   var b=e.target.closest('.month-btn'); if(!b) return;
+  if(b.dataset.rf){ flash(b.textContent+': todavía no hay datos del balance para este mes'); return; }
   setMonth(b.dataset.month);
 });
 $('dlIcons').innerHTML = Object.keys(ICONS).map(function(k){return '<option value="'+k+'">';}).join('');
@@ -743,19 +896,26 @@ $('bSvg').addEventListener('click', function(){
   if(!L || !L.nodes.length){ flash('No hay diagrama'); return; }
   download('sankey_'+safeName()+'.svg', new Blob(['<?xml version="1.0" encoding="UTF-8"?>\n'+buildSvg(L,true)],{type:'image/svg+xml;charset=utf-8'}));
 });
-$('bPng').addEventListener('click', function(){
-  if(!L || !L.nodes.length){ flash('No hay diagrama'); return; }
-  var svg = buildSvg(L,true), img = new Image();
+function exportPng(svg, name){
+  var m = svg.match(/viewBox="0 0 ([\d.]+) ([\d.]+)"/), w = m ? parseFloat(m[1]) : W, h = m ? parseFloat(m[2]) : L.H, img = new Image();
   var url = URL.createObjectURL(new Blob([svg],{type:'image/svg+xml;charset=utf-8'}));
   img.onload = function(){
-    var c = document.createElement('canvas'); c.width = W*2; c.height = L.H*2;
+    var c = document.createElement('canvas'); c.width = Math.round(w*2); c.height = Math.round(h*2);
     var ctx = c.getContext('2d'); ctx.fillStyle = '#fff'; ctx.fillRect(0,0,c.width,c.height);
     ctx.drawImage(img,0,0,c.width,c.height);
     URL.revokeObjectURL(url);
-    c.toBlob(function(b){ if(b) download('sankey_'+safeName()+'.png', b); else flash('No se pudo crear la imagen'); },'image/png');
+    c.toBlob(function(b){ if(b) download(name, b); else flash('No se pudo crear la imagen'); },'image/png');
   };
   img.onerror = function(){ URL.revokeObjectURL(url); flash('No se pudo crear la imagen'); };
   img.src = url;
+}
+$('bPng').addEventListener('click', function(){
+  if(!L || !L.nodes.length){ flash('No hay diagrama'); return; }
+  exportPng(buildSvg(L,true), 'sankey_'+safeName()+'.png');
+});
+$('bSankey').addEventListener('click', function(){
+  if(!L || !L.nodes.length){ flash('No hay diagrama'); return; }
+  exportPng(buildSvg(L,true,true), 'sankey_solo_'+safeName()+'.png');
 });
 $('bFull').addEventListener('click', function(){
   var w = $('stagewrap');
